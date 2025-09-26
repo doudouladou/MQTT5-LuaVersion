@@ -46,7 +46,7 @@ local MqttPublicAnalysis = {
         local reason_code = data:byte(4)
         log.info("Connack session", session, "reason", reason_code)
         if session == 0 and reason_code == 0 then
-            object.keepalive_timer = sys.timerLoopStart(socket.tx, 1000, object.netc, PingReq())
+            object.keepalive_timer = sys.timerLoopStart(socket.tx, object.keepalive * 1000, object.netc, PingReq())
             object.cb(object, "connack")
         end
         local data = data:sub(length + pos)
@@ -137,16 +137,16 @@ local function encode_utf8(s)
     end
 end
 
-local function pack_connect(clientId, username, password, keepAlive, cleanSession)
+local function pack_connect(client_id, username, password, keepAlive, cleanSession, will, property)
     local str = ""
     --- 固定报头
     -- str = str .. string.char(0x10)
     --- 可变报头
-    -- 协议名a
+    -- 协议名
     -- MSB LSB M Q T T
     str = str .. string.char(0x00, 0x04) .. "MQTT"
 
-    -- 协议版本
+    -- 协议版本 5
     str = str .. string.char(0x05)
 
     -- 连接标志
@@ -167,20 +167,24 @@ local function pack_connect(clientId, username, password, keepAlive, cleanSessio
     str = str .. string.char(0x00, 0xff)
 
     --- properties
-    str = str .. string.char(0x00)
-    -- str = str .. string.char(0x05)
-    -- str = str .. string.char(0x11)
-    -- str = str .. string.char(0x00, 0x00, 0x10, 0x10)
+    local properties = ""
+    -- 主题别名最大长度
+    if property and type(property) == "table" then
+        if property.topic_alias_max_len then
+            properties = properties .. string.char(0x22).. string.char(property.topic_alias_max_len // 256, property.topic_alias_max_len % 256)
+        end
+    end
+    
 
-    -- local clientId = "abc123"
-    str = str .. string.char(0x00, #clientId) .. clientId
-    -- str = str .. 
-    log.info("str", str)
+    str = str .. encode_len(#properties) .. properties
+
+    if client_id and #client_id > 0 then
+        str = str .. string.char(0x00, #client_id) .. client_id
+    end
 
     -- username
     if username and #username > 0 then
-        str = str .. string.char(0x00, #username)
-        str = str .. username
+        str = str .. string.char(0x00, #username) .. username
     end
 
     -- payload
@@ -209,8 +213,9 @@ local function pack_subscribe(topic, qos)
     return str
 end
 
-local function pack_publish(topic, payload, qos, retain)
+local function pack_publish(topic, payload, qos, retain, property)
     local str = ""
+    local topic_len = 0
     local dup = qos == 0 and 0 or 8
     if qos == 0 then
         qos = 0
@@ -222,20 +227,30 @@ local function pack_publish(topic, payload, qos, retain)
     --- publish 报头
     str = str .. string.char(PublishFixHead + (dup + qos + retain))
     -- TOPIC NAME
-    topic = string.char(0x00, #topic) .. topic
+    if topic and #topic > 0 then
+        topic = string.char(0x00, #topic) .. topic
+        topic_len = #topic
+    else
+        topic = string.char(0x00, 0x00)
+        topic_len = 2
+    end
+
     --- publish 属性
-    -- utf8
+    local properties = ""
+    -- 载荷格式指示 UTF8
     local protocol = string.char(0x01, 0x01)
-    local property = string.char(#protocol) .. protocol
+    -- properties = string.char(#protocol) .. protocol
+    properties = properties .. protocol
+    -- 消息过期间隔 TODO
 
-    -- 主题别名 TODO 似乎不需要也行？
-    -- local topicName = string.char(0x23, 0x01, 0x02)
-    -- local property = string.char(#protocol + #topicName) .. protocol .. topicName
-
-    str = str .. encode_len(#topic + #property + #payload) .. topic .. property .. payload
+    -- 主题别名
+    if property.alias then
+        local alias = string.char(0x23) .. string.char(property.alias // 256, property.alias % 256)
+        properties = properties .. alias
+    end
+    properties = encode_len(#properties) .. properties
+    str = str .. encode_len(topic_len + #properties + #payload) .. topic .. properties .. payload
     log.info("tx data", str:toHex())
-    -- payload = string.char(0x00, #payload) .. payload
-
     return str
 end
 
@@ -245,7 +260,7 @@ local function mqtt_socket_cb(opts, event)
     if event == socket.ON_LINE then
         -- TCP链接已建立, 那就可以上行了
         log.info("TCP connected")
-        local str = pack_connect(opts.client_id, opts.username, opts.password, opts.keepalive, opts.cleansession)
+        local str = pack_connect(opts.client_id, opts.username, opts.password, opts.keepalive, opts.cleansession, opts.will, opts.property)
         socket.tx(opts.netc, str)
     elseif event == socket.TX_OK then
         -- 数据传输完成
@@ -277,7 +292,7 @@ end
 
 
 
-function mqtt5.create(client_id, username, password, keepalive, cleansession)
+function mqtt5.create(client_id, username, password, keepalive, cleansession, will, property)
     local opts = {}
     local netc = socket.create(nil, function(sc, event)
         if opts.netc then
@@ -297,6 +312,8 @@ function mqtt5.create(client_id, username, password, keepalive, cleansession)
     opts.password = password or ""
     opts.keepalive = keepalive or 240
     opts.cleansession = cleansession
+    opts.will = will
+    opts.property = property
     return opts
 end
 
@@ -317,8 +334,8 @@ function mqtt5.subscribe(opts, topic, qos)
 end
 
 
-function mqtt5.publish(opts, topic, payload, qos, retain)
-    local str = pack_publish(topic, payload, qos, retain)
+function mqtt5.publish(opts, topic, payload, qos, retain, property)
+    local str = pack_publish(topic, payload, qos, retain, property)
     socket.tx(opts.netc, str)
 end
 
