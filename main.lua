@@ -36,20 +36,20 @@ sys.taskInit(function()
     sys.waitUntil("connack")
 
     -- 订阅主题
-    object:subscribe("SubTest", 0)
+    object:subscribe("SubTest", 1)
     local pubproperty = {
         alias = 2000
     }
     -- 往主题发布数据
-    object:publish(publish_topic, "" .. os.time(), 0, 1, pubproperty)
-    sys.wait(1000)
-    while 1 do
-        log.info("aaaaa")
-        -- 往主题发布数据
-        object:publish("", "" .. os.time(), 0, 1, pubproperty)
-            -- mqtt5.publish(object, "PubTest", "" .. os.time(), 0, 1, pubproperty)
-        sys.wait(1000)
-    end
+    -- object:publish(publish_topic, "" .. os.time(), 1, 1, pubproperty)
+    -- sys.wait(1000)
+    -- while 1 do
+    --     log.info("aaaaa")
+    --     -- 往主题发布数据
+    --     object:publish("", "" .. os.time(), 1, 1, pubproperty)
+    --         -- mqtt5.publish(object, "PubTest", "" .. os.time(), 0, 1, pubproperty)
+    --     sys.wait(1000)
+    -- end
 end)
 
 sys.run()

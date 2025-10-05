@@ -1,6 +1,6 @@
 
 local mqtt5 = {}
-
+mqtt5.__index = mqtt5
 
 local ConnectFixHead = 0x10
 local ConnackFixHead = 0x20
@@ -9,9 +9,9 @@ local PubackFixHead = 0x40
 local PubrecFixHead = 0x50
 local PubrelFixHead = 0x62
 local PubcompFixHead = 0x70
-local SubscribeFixHead = 0x82
+local SubscribeFixHead = 0x80
 local SubackFixHead = 0x90
-local UnsubscribeFixHead = 0xA2
+local UnsubscribeFixHead = 0xA0
 local UnsubackFixHead = 0xB0
 local PintReqFixHead = 0xC0
 local PingRespFixHead = 0xD0
@@ -41,20 +41,22 @@ end
 
 
 local MqttPublicAnalysis = {
-    [ConnackFixHead] = function(object, data, length, pos)
+    [ConnackFixHead] = function(user, head,data, length, pos)
         local session = data:byte(3)
         local reason_code = data:byte(4)
         log.info("Connack session", session, "reason", reason_code)
         if session == 0 and reason_code == 0 then
-            object.keepalive_timer = sys.timerLoopStart(socket.tx, object.keepalive * 1000, object.netc, ping_req())
-            object.cb(object, "connack")
+            user.keepalive_timer = sys.timerLoopStart(socket.tx, user.keepalive * 1000, user.netc, ping_req())
+            user.cb(user, "connack")
         end
         local data = data:sub(length + pos)
         return data
     end,
-    [PublishFixHead] = function(object, data, length, pos)
+    [PublishFixHead] = function(user, head, data, length, pos)
         -- log.info("mqtt publish", len, #data)
-        log.info("mqtt publish", length, pos)
+        log.info("mqtt publish", length, pos, head)
+        local qos = head & 0x06
+        log.info("publish qos", qos)
         -- 主题
         local topicLen = string.sub(data, pos, pos + 1)
         -- log.info("主题长度", topicLen:toHex(), tonumber(topicLen:toHex(), 16))
@@ -71,26 +73,27 @@ local MqttPublicAnalysis = {
         -- 负载
         local payload = string.sub(data, pos)
         -- log.info("内容", pubPropertyLen, #payload, payload)
-        object.cb(object, "recv", topic, payload)
+        user.cb(user, "recv", topic, payload)
         local data = data:sub(length + pos)
         return data
     end,
-    [SubackFixHead] = function(object, data, length, pos)
+    [SubackFixHead] = function(user, head, data, length, pos)
         log.info("sub ", data:toHex(), length, pos)
+        local len = string.sub(data, pos, pos + 1)
         local data = data:sub(length + pos)
         return data
     end,
 
-    [PingRespFixHead] = function(object, data, length, pos)
+    [PingRespFixHead] = function(user, head, data, length, pos)
         log.info("心跳响应 ", data:toHex(), length, pos)
         local data = data:sub(length + pos)
         return data
     end,
 
-    [DisconnectFixHead] = function(object, data, length, pos)
-        if object.keepalive_timer then
-            sys.timerStop(object.keepalive_timer)
-            object.keepalive_timer = nil
+    [DisconnectFixHead] = function(user, head, data, length, pos)
+        if user.keepalive_timer then
+            sys.timerStop(user.keepalive_timer)
+            user.keepalive_timer = nil
         end
         log.info("连接断开 ", data:toHex(), length, pos)
         local data = data:sub(length + pos)
@@ -118,11 +121,11 @@ local function mqtt_proc(opts)
         log.info("data length not enough", #opts.buf, length + 2)
         return false, opts.buf
     end
-
-    if MqttPublicAnalysis[fix_head] then
-        return true, MqttPublicAnalysis[fix_head](opts, opts.buf, length, pos)
+    -- fix_head = (fix_head & 0xF0) >> 4
+    if MqttPublicAnalysis[fix_head & 0xF0] then
+        return true, MqttPublicAnalysis[fix_head & 0xF0](opts, fix_head, opts.buf, length, pos)
     else
-        log.info("id unregister", fix_head)
+        log.info("id unregister", string.char(fix_head):toHex())
         return true, opts.buf:sub(length + pos)
     end
 end
@@ -246,6 +249,7 @@ local function pack_publish(topic, payload, qos, retain, property)
     end
     --- publish 报头
     str = str .. string.char(PublishFixHead + (dup + qos + retain))
+    log.info("packet head", str:toHex())
     -- TOPIC NAME
     if topic and #topic > 0 then
         topic = string.char(0x00, #topic) .. topic
@@ -310,8 +314,7 @@ local function mqtt_socket_cb(opts, event)
     end
 end
 
-local mqtt5 = {}
-mqtt5.__index = mqtt5
+
 
 function mqtt5.create(client_id, username, password, keepalive, clean_session, will, property)
     local opts = {}
