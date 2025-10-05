@@ -1,5 +1,4 @@
 local mqtt5 = {}
-mqtt5.__index = mqtt5
 
 local ConnectFixHead = 0x10
 local ConnackFixHead = 0x20
@@ -12,10 +11,15 @@ local SubscribeFixHead = 0x80
 local SubackFixHead = 0x90
 local UnsubscribeFixHead = 0xA0
 local UnsubackFixHead = 0xB0
-local PintReqFixHead = 0xC0
+local PingReqFixHead = 0xC0
 local PingRespFixHead = 0xD0
 local DisconnectFixHead = 0xE0
 local AuthFixHead = 0xF0
+
+mqtt5.event_connack = 1
+mqtt5.event_publish = 2
+mqtt5.event_pubrec = 3
+mqtt5.event_disconnect = 4
 
 local function encode_len(len)
     local s = ""
@@ -31,40 +35,37 @@ local function encode_len(len)
     return s
 end
 
-local function ping_req()
-    local str = string.char(PintReqFixHead, 0x00)
+function mqtt5.ping_req()
+    local str = string.char(PingReqFixHead, 0x00)
     return str
 end
 
-local function pack_puback(id)
+function mqtt5.pack_puback(id)
     local str = string.char(PubackFixHead, 0x04) .. id .. string.char(0x00, 0x00)
     return str
 end
-
-local function pack_pubrec(id)
+function mqtt5.pack_pubrec(id)
     local str = string.char(PubrecFixHead, 0x04) .. id .. string.char(0x00, 0x00)
     return str
 end
 
-local function pack_pubrel(id)
+function mqtt5.pack_pubrel(id)
     local str = string.char(PubrelFixHead, 0x04) .. id .. string.char(0x00, 0x00)
     return str
 end
 
 local MqttPublicAnalysis = {
-    [ConnackFixHead] = function(user, data, length, pos)
+    [ConnackFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
-        local session = data:byte(3)
-        local reason_code = data:byte(4)
-        log.info("Connack session", session, "reason", reason_code)
-        if session == 0 and reason_code == 0 then
-            user.keepalive_timer = sys.timerLoopStart(socket.tx, user.keepalive * 1000, user.netc, ping_req())
-            user.user_cb(user, "connack")
-        end
+        local param = {
+            session = data:byte(3),
+            reason_code = data:byte(4)
+        }
+        log.info("Connack session", param.session, "reason", param.reason_code)
+        event_cb(mqtt5.event_connack, user_param, param)
         return return_data
     end,
-    [PublishFixHead] = function(user, data, length, pos)
-        log.info("log.info test", length, pos)
+    [PublishFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
         local qos = data:byte(1, 1) & 0x06
         -- 主题
@@ -76,14 +77,10 @@ local MqttPublicAnalysis = {
         pos = pos + topicLen
 
         -- 如果qos大于0, 则有2bytes标识符
+        local identifier
         if qos > 0 then
-            local identifier = string.sub(data, pos, pos + 1)
+            identifier = string.sub(data, pos, pos + 1)
             pos = pos + 2
-            if qos == 2 then
-                socket.tx(user.netc, pack_puback(identifier))
-            elseif qos == 4 then
-                socket.tx(user.netc, pack_pubrec(identifier))
-            end
         end
         -- 属性，如果有的话
         local property_len = string.byte(data, pos, pos)
@@ -91,75 +88,80 @@ local MqttPublicAnalysis = {
         pos = pos + 1 + property_len
         -- 负载
         local payload = string.sub(data, pos)
-        user.user_cb(user, "recv", topic, payload)
+        local param = {
+            topic = topic,
+            payload = payload,
+            qos = qos,
+            identifier = identifier
+        }
+        event_cb(mqtt5.event_publish, user_param, param)
         return return_data
     end,
-    [SubackFixHead] = function(user, data, length, pos)
+    [SubackFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
         log.info("sub ", data:toHex(), length, pos)
         local len = string.sub(data, pos, pos + 1)
         return return_data
     end,
 
-    [PingRespFixHead] = function(user, data, length, pos)
+    [PingRespFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
         log.info("PingRespFixHead ", data:toHex(), length, pos)
         return return_data
     end,
-    [PubrelFixHead] = function(user, data, length, pos)
+    [PubrelFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
         log.info("PubrelFixHead ", data:toHex(), length, pos)
         return return_data
     end,
-    [PubrecFixHead] = function(user, data, length, pos)
+    [PubrecFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
         log.info("PubrecFixHead ", data:toHex(), length, pos)
-        local id = data:sub(3, 4)
-        socket.tx(user.netc, pack_pubrel(id))
+        local identifier = data:sub(3, 4)
+        local param = {
+            identifier = identifier
+        }
+        event_cb(mqtt5.event_pubrec, user_param, param)
         return return_data
     end,
 
-    [DisconnectFixHead] = function(user, data, length, pos)
+    [DisconnectFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
-        if user.keepalive_timer then
-            sys.timerStop(user.keepalive_timer)
-            user.keepalive_timer = nil
-        end
-        log.info("连接断开 ", data:toHex(), length, pos)
+        event_cb(mqtt5.event_disconnect, user_param)
         return return_data
     end
 }
 
-local function mqtt_proc(opts)
-    log.info("mqtt recv", opts.buf:sub(1, 50):toHex())
-    local fix_head = opts.buf:byte(1)
+function mqtt5.mqtt_proc(event_cb, buf, user_param)
+    log.info("mqtt recv", buf:sub(1, 50):toHex())
+    local fix_head = buf:byte(1)
     local length = 0
     local multiplier = 1
     local pos = 2
     repeat
-        if pos > #opts.buf then
-            return opts.buf
+        if pos > #buf then
+            return buf
         end
-        local digit = string.byte(opts.buf, pos)
+        local digit = string.byte(buf, pos)
         length = length + ((digit % 128) * multiplier)
         multiplier = multiplier * 128
         pos = pos + 1
     until digit < 128
 
-    if #opts.buf < length + pos - 1 then
-        log.info("data length not enough", #opts.buf, length + 2)
-        return false, opts.buf
+    if #buf < length + pos - 1 then
+        log.info("data length not enough", #buf, length + 2)
+        return false, buf
     end
     -- fix_head = (fix_head & 0xF0) >> 4
     if MqttPublicAnalysis[fix_head & 0xF0] then
-        return true, MqttPublicAnalysis[fix_head & 0xF0](opts, opts.buf, length, pos)
+        return true, MqttPublicAnalysis[fix_head & 0xF0](event_cb, buf, length, pos, user_param)
     else
         log.info("id unregister", string.char(fix_head):toHex())
-        return true, opts.buf:sub(length + pos)
+        return true, buf:sub(length + pos)
     end
 end
 
-local function pack_connect(client_id, username, password, keepAlive, clean_session, will, property)
+function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_session, will, property)
     local str = ""
     --- 固定报头
     -- str = str .. string.char(0x10)
@@ -186,7 +188,6 @@ local function pack_connect(client_id, username, password, keepAlive, clean_sess
     local connect_flag = (#username == 0 and 0 or 1) * 128 + (#password == 0 and 0 or 1) * 64 + (clean_session or 1) * 2
     if will and type(will) == "table" then
         connect_flag = connect_flag + will.retain * 32 + will.qos * 8 + 4
-        log.info("Test", connect_flag)
     end
 
     str = str .. string.char(connect_flag)
@@ -238,7 +239,7 @@ local function pack_connect(client_id, username, password, keepAlive, clean_sess
     return str
 end
 
-local function pack_subscribe(topic, qos)
+function mqtt5.pack_subscribe(topic, qos)
     local str = ""
     --- 固定报头
     str = str .. string.char(SubscribeFixHead)
@@ -259,7 +260,7 @@ local function pack_subscribe(topic, qos)
     return str
 end
 
-local function pack_publish(topic, payload, qos, retain, packet_id, property)
+function mqtt5.pack_publish(topic, payload, qos, retain, packet_id, property)
     local str = ""
     local topic_len = 0
     local identifier = ""
@@ -301,97 +302,7 @@ local function pack_publish(topic, payload, qos, retain, packet_id, property)
     end
     properties = encode_len(#properties) .. properties
     str = str .. encode_len(topic_len + #identifier + #properties + #payload) .. topic .. identifier .. properties .. payload
-    log.info("tx data", str:toHex())
     return str
-end
-
--- socket 回调函数
-local function mqtt_socket_cb(opts, event)
-    if event == socket.ON_LINE then
-        -- TCP链接已建立, 那就可以上行了
-        log.info("TCP connected")
-        local str = pack_connect(opts.client_id, opts.username, opts.password, opts.keepalive, opts.clean_session, opts.will, opts.property)
-        socket.tx(opts.netc, str)
-    elseif event == socket.TX_OK then
-        -- 数据传输完成
-        log.info("TCP tx done")
-    elseif event == socket.EVENT then
-        local result = true
-        while true do
-            local succ, data_len = socket.rx(opts.netc, opts.rx_buff)
-            log.info("TCP", succ, data_len)
-            if succ and data_len > 0 then
-                opts.buf = opts.buf .. opts.rx_buff:query()
-                opts.rx_buff:del()
-                log.info("recv data", data_len)
-                while result and #opts.buf > 0 do
-                    result, opts.buf = mqtt_proc(opts)
-                end
-            else
-                break
-            end
-        end
-    elseif event == socket.CLOSED then
-        if opts.keepalive_timer then
-            sys.timerStop(opts.keepalive_timer)
-            opts.keepalive_timer = nil
-        end
-        log.info("tcp closed")
-    end
-end
-
-function mqtt5.create(client_id, username, password, keepalive, clean_session, will, property)
-    local opts = {}
-    local netc = socket.create(nil, function(sc, event)
-        if opts.netc then
-            return mqtt_socket_cb(opts, event)
-        end
-    end)
-    if not netc then
-        log.error("创建socket失败了!!")
-        return false
-    end
-
-    opts.netc = netc
-    opts.rx_buff = zbuff.create(1024)
-    opts.buf = ""
-    opts.client_id = client_id
-    opts.username = username or ""
-    opts.password = password or ""
-    opts.keepalive = keepalive or 240
-    opts.clean_session = clean_session
-    opts.will = will
-    opts.property = property
-    opts.packet_id = 0
-    opts.next_id = function()
-        opts.packet_id = opts.packet_id == 65535 and 1 or (opts.packet_id + 1)
-        return opts.packet_id
-    end
-    setmetatable(opts, mqtt5)
-    return opts
-end
-
-function mqtt5:on(cb)
-    self.user_cb = cb
-end
-
-function mqtt5:connect(host, port)
-    socket.config(self.netc, nil, nil)
-    socket.connect(self.netc, host, port)
-end
-
-function mqtt5:subscribe(topic, qos)
-    local str = pack_subscribe(topic, qos)
-    socket.tx(self.netc, str)
-end
-
-function mqtt5:publish(topic, payload, qos, retain, property)
-    local str = pack_publish(topic, payload, qos, retain, self.next_id(), property)
-    socket.tx(self.netc, str)
-end
-
-function mqtt5:unsubscribe(topic)
-
 end
 
 return mqtt5

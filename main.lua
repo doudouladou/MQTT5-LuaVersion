@@ -1,11 +1,11 @@
--- local mqtt_user = require "mqtt_user"
-local mqtt_user = require "mqtt5"
+local mqtt_user = require "mqtt_user"
+-- local mqtt_user = require "mqtt5"
 local host = "imadaydreamer.cn"
 local port = 1883
 local client_id = "12345678"
 local username = ""
 local password = ""
-local keepalive = 240
+local keepalive = 10
 local clean_session = 1
 
 local publish_topic_qos0 = "publish_topic_qos0"
@@ -31,7 +31,7 @@ local will_topic = "will"
 local object
 
 local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas)
-    -- log.info("mqtt_client_event_cbfunc", mqtt_client, event, data, payload)
+    log.info("mqtt_client_event_cbfunc", mqtt_client, event, data, payload)
     if event == "connack" then
         sys.publish("connack")
     end
@@ -69,13 +69,13 @@ sys.taskInit(function()
     -- 订阅主题
     -- object:subscribe("SubTest", 2)
     object:subscribe(subscribe_topic_qos0, 0)
-    -- object:subscribe(subscribe_topic_qos1, 1)
-    -- object:subscribe(subscribe_topic_qos2, 2)
+    object:subscribe(subscribe_topic_qos1, 1)
+    object:subscribe(subscribe_topic_qos2, 2)
 
     -- 往主题发布数据
-    object:publish(publish_topic_qos0, "" .. os.time(), 0, 1, pubproperty0)
+    -- object:publish(publish_topic_qos0, "" .. os.time(), 0, 1, pubproperty0)
     -- object:publish(publish_topic_qos1, "" .. os.time(), 1, 1, pubproperty1)
-    -- object:publish(publish_topic_qos2, "" .. os.time(), 2, 1, pubproperty2)
+    object:publish(publish_topic_qos2, "" .. os.time(), 2, 1, pubproperty2)
     sys.wait(1000)
     while 1 do
         -- 往主题发布数据
