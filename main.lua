@@ -73,13 +73,13 @@ sys.taskInit(function()
     object:subscribe(subscribe_topic_qos2, 2)
 
     -- 往主题发布数据
-    -- object:publish(publish_topic_qos0, "" .. os.time(), 0, 1, pubproperty0)
+    object:publish(publish_topic_qos0, "" .. os.time(), 0, 1, pubproperty0)
     -- object:publish(publish_topic_qos1, "" .. os.time(), 1, 1, pubproperty1)
-    object:publish(publish_topic_qos2, "" .. os.time(), 2, 1, pubproperty2)
+    -- object:publish(publish_topic_qos2, "" .. os.time(), 2, 1, pubproperty2)
     sys.wait(1000)
     while 1 do
         -- 往主题发布数据
-        -- object:publish("", "" .. os.time(), 0, 1, pubproperty0)
+        object:publish("", "" .. os.time(), 0, 1, pubproperty0)
         -- object:publish("", "" .. os.time(), 1, 1, pubproperty1)
         -- object:publish("", "" .. os.time(), 2, 1, pubproperty2)
         sys.wait(1000)

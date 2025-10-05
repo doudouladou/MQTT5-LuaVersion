@@ -25,7 +25,7 @@ local function event_cb(event, user_param, param)
     elseif event == mqtt5.event_publish then
         if param.qos == 1 then
             socket.tx(netc, mqtt5.pack_puback(param.identifier))
-        else
+        elseif param.qos == 2 then
             socket.tx(netc, mqtt5.pack_pubrec(param.identifier))
         end
         user_cb(object, "recv", param.topic, param.payload)

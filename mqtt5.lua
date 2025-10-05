@@ -190,17 +190,14 @@ function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_sess
         connect_flag = connect_flag + will.retain * 32 + will.qos * 8 + 4
     end
 
-    str = str .. string.char(connect_flag)
-
-    -- keepAlive
-    str = str .. string.char(keepAlive // 256, keepAlive % 256)
+    str = str .. string.pack(">bH", connect_flag, keepAlive)
 
     --- properties
     local properties = ""
     -- 主题别名最大长度
     if property and type(property) == "table" then
         if property.topic_alias_max_len then
-            properties = properties .. string.char(0x22) .. string.char(property.topic_alias_max_len // 256, property.topic_alias_max_len % 256)
+            properties = properties .. string.pack(">BH", 0x22, property.topic_alias_max_len)
         end
     end
 
@@ -219,18 +216,18 @@ function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_sess
 
         if will.property and type(will.property) == "table" then
             if will.property.delay_interval then
-                local delay = string.char(0x18) .. string.pack(">L", will.property.delay_interval)
+                local delay = string.pack(">BL", 0x18, will.property.delay_interval)
                 properties = properties .. delay
             end
         end
         str = str .. encode_len(#properties) .. properties
-        str = str .. string.char(0x00, #will.topic) .. will.topic
-        str = str .. string.char(0x00, #will.payload) .. will.payload
+        str = str .. string.pack(">H", #will.topic) .. will.topic
+        str = str .. string.pack(">H", #will.payload) .. will.payload
     end
 
     -- username
     if username and #username > 0 then
-        str = str .. string.char(0x00, #username) .. username
+        str = str .. string.pack(">H", #username) .. username
     end
 
     -- 长度
@@ -243,16 +240,11 @@ function mqtt5.pack_subscribe(topic, qos)
     local str = ""
     --- 固定报头
     str = str .. string.char(SubscribeFixHead)
-
-    -- 剩余长度
-    -- str = str .. string.char(0x00, 0x00)
-
     -- 用户属性
     local property = ""
     property = string.char(0x00, 0x00, 0x00)
-    -- local property = string.char(0x00, 0x0A, 0x00)
 
-    topic = string.char(0x00, #topic) .. topic
+    topic = string.pack(">H", #topic) .. topic
 
     local option = string.char(qos)
 
@@ -273,14 +265,14 @@ function mqtt5.pack_publish(topic, payload, qos, retain, packet_id, property)
         qos = 4
     end
     if qos > 0 then
-        identifier = string.char(packet_id // 256, packet_id % 256)
+        identifier = string.pack(">H", packet_id)
     end
     --- publish 报头
     str = str .. string.char(PublishFixHead + (dup + qos + retain))
     log.info("packet head", str:toHex())
     -- TOPIC NAME
     if topic and #topic > 0 then
-        topic = string.char(0x00, #topic) .. topic
+        topic = string.pack(">H", #topic) .. topic
         topic_len = #topic
     else
         topic = string.char(0x00, 0x00)
@@ -297,7 +289,7 @@ function mqtt5.pack_publish(topic, payload, qos, retain, packet_id, property)
 
     -- 主题别名
     if property.alias then
-        local alias = string.char(0x23) .. string.char(property.alias // 256, property.alias % 256)
+        local alias = string.pack(">BH", 0x23, property.alias)
         properties = properties .. alias
     end
     properties = encode_len(#properties) .. properties
