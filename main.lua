@@ -2,13 +2,33 @@ local mqtt5 = require "mqtt5"
 local host = "imadaydreamer.cn"
 local port = 1883
 local client_id = "12345678"
-local username
-local password
-local keepalive
-local clean_session
-local object
-local publish_topic = "abcdefghijklmnopqrstuvwxyz"
+local username = ""
+local password = ""
+local keepalive = 240
+local clean_session = 1
+
+local publish_topic_qos0 = "publish_topic_qos0"
+local publish_topic_qos1 = "publish_topic_qos1"
+local publish_topic_qos2 = "publish_topic_qos2"
+
+local subscribe_topic_qos0 = "subscribe_topic_qos0"
+local subscribe_topic_qos1 = "subscribe_topic_qos1"
+local subscribe_topic_qos2 = "subscribe_topic_qos2"
+
+local pubproperty0 = {
+    alias = 2000
+}
+local pubproperty1 = {
+    alias = 2001
+}
+local pubproperty2 = {
+    alias = 2002
+}
+
 local will_topic = "will"
+
+local object
+
 local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas)
     log.info("mqtt_client_event_cbfunc", mqtt_client, event, data, payload)
     if event == "connack" then
@@ -16,9 +36,19 @@ local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas
     end
 end
 
-local will = {payload = "this client is dead", topic = will_topic, retain = 1, qos = 0, property = {delay_interval = 200}}
+local will = {
+    payload = "this client is dead",
+    topic = will_topic,
+    retain = 1,
+    qos = 0,
+    property = {
+        delay_interval = 200
+    }
+}
 
-local property = {topic_alias_max_len = 60000}
+local property = {
+    topic_alias_max_len = 60000
+}
 
 -- local will = nil
 sys.taskInit(function()
@@ -36,20 +66,23 @@ sys.taskInit(function()
     sys.waitUntil("connack")
 
     -- 订阅主题
-    object:subscribe("SubTest", 1)
-    local pubproperty = {
-        alias = 2000
-    }
+    -- object:subscribe("SubTest", 2)
+    object:subscribe(subscribe_topic_qos0, 0)
+    object:subscribe(subscribe_topic_qos1, 1)
+    object:subscribe(subscribe_topic_qos2, 2)
+
     -- 往主题发布数据
-    -- object:publish(publish_topic, "" .. os.time(), 1, 1, pubproperty)
-    -- sys.wait(1000)
-    -- while 1 do
-    --     log.info("aaaaa")
-    --     -- 往主题发布数据
-    --     object:publish("", "" .. os.time(), 1, 1, pubproperty)
-    --         -- mqtt5.publish(object, "PubTest", "" .. os.time(), 0, 1, pubproperty)
-    --     sys.wait(1000)
-    -- end
+    -- object:publish(publish_topic_qos0, "" .. os.time(), 0, 1, pubproperty0)
+    -- object:publish(publish_topic_qos1, "" .. os.time(), 1, 1, pubproperty1)
+    object:publish(publish_topic_qos2, "" .. os.time(), 2, 1, pubproperty2)
+    sys.wait(1000)
+    while 1 do
+        -- 往主题发布数据
+        -- object:publish("", "" .. os.time(), 0, 1, pubproperty0)
+        -- object:publish("", "" .. os.time(), 1, 1, pubproperty1)
+        object:publish("", "" .. os.time(), 2, 1, pubproperty2)
+        sys.wait(1000)
+    end
 end)
 
 sys.run()

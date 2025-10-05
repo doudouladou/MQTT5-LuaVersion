@@ -1,4 +1,3 @@
-
 local mqtt5 = {}
 mqtt5.__index = mqtt5
 
@@ -7,7 +6,7 @@ local ConnackFixHead = 0x20
 local PublishFixHead = 0x30
 local PubackFixHead = 0x40
 local PubrecFixHead = 0x50
-local PubrelFixHead = 0x62
+local PubrelFixHead = 0x60
 local PubcompFixHead = 0x70
 local SubscribeFixHead = 0x80
 local SubackFixHead = 0x90
@@ -17,8 +16,6 @@ local PintReqFixHead = 0xC0
 local PingRespFixHead = 0xD0
 local DisconnectFixHead = 0xE0
 local AuthFixHead = 0xF0
-
-
 
 local function encode_len(len)
     local s = ""
@@ -39,65 +36,96 @@ local function ping_req()
     return str
 end
 
+local function pack_puback(id)
+    local str = string.char(PubackFixHead, 0x04) .. id .. string.char(0x00, 0x00)
+    return str
+end
+
+local function pack_pubrec(id)
+    local str = string.char(PubrecFixHead, 0x04) .. id .. string.char(0x00, 0x00)
+    return str
+end
+
+local function pack_pubrel(id)
+    local str = string.char(PubrelFixHead, 0x04) .. id .. string.char(0x00, 0x00)
+    return str
+end
+
+
 
 local MqttPublicAnalysis = {
-    [ConnackFixHead] = function(user, head,data, length, pos)
+    [ConnackFixHead] = function(user, data, length, pos)
         local session = data:byte(3)
         local reason_code = data:byte(4)
         log.info("Connack session", session, "reason", reason_code)
         if session == 0 and reason_code == 0 then
             user.keepalive_timer = sys.timerLoopStart(socket.tx, user.keepalive * 1000, user.netc, ping_req())
-            user.cb(user, "connack")
+            user.user_cb(user, "connack")
         end
-        local data = data:sub(length + pos)
-        return data
+        return data:sub(length + pos)
     end,
-    [PublishFixHead] = function(user, head, data, length, pos)
+    [PublishFixHead] = function(user, data, length, pos)
         -- log.info("mqtt publish", len, #data)
-        log.info("mqtt publish", length, pos, head)
-        local qos = head & 0x06
+        log.info("mqtt publish", length, pos)
+        local qos = data:byte(1, 1) & 0x06
         log.info("publish qos", qos)
+
         -- 主题
         local topicLen = string.sub(data, pos, pos + 1)
-        -- log.info("主题长度", topicLen:toHex(), tonumber(topicLen:toHex(), 16))
+        log.info("topic len", topicLen:toHex(), tonumber(topicLen:toHex(), 16))
         topicLen = tonumber(topicLen:toHex(), 16)
         pos = pos + 2
         local topic = string.sub(data, pos, pos + topicLen)
-        -- log.info("主题", topic)
+        log.info("topic", topic)
         pos = pos + topicLen
 
+        -- 如果qos大于0, 则有2bytes标识符
+        if qos > 0 then
+            local identifier = string.sub(data, pos, pos + 1)
+            pos = pos + 2
+            if qos == 2 then
+                socket.tx(user.netc, pack_puback(identifier))
+            elseif qos == 4 then
+                socket.tx(user.netc, pack_pubrec(identifier))
+            end
+        end
         -- 属性，如果有的话
         local pubPropertyLen = string.byte(data, pos, pos)
         pos = pos + 1 + pubPropertyLen
 
         -- 负载
         local payload = string.sub(data, pos)
-        -- log.info("内容", pubPropertyLen, #payload, payload)
-        user.cb(user, "recv", topic, payload)
-        local data = data:sub(length + pos)
-        return data
+        user.user_cb(user, "recv", topic, payload)
+        return data:sub(length + pos)
     end,
-    [SubackFixHead] = function(user, head, data, length, pos)
+    [SubackFixHead] = function(user, data, length, pos)
         log.info("sub ", data:toHex(), length, pos)
         local len = string.sub(data, pos, pos + 1)
-        local data = data:sub(length + pos)
-        return data
+        return data:sub(length + pos)
     end,
 
-    [PingRespFixHead] = function(user, head, data, length, pos)
-        log.info("心跳响应 ", data:toHex(), length, pos)
-        local data = data:sub(length + pos)
-        return data
+    [PingRespFixHead] = function(user, data, length, pos)
+        log.info("PingRespFixHead ", data:toHex(), length, pos)
+        return data:sub(length + pos)
+    end,
+    [PubrelFixHead] = function(user, data, length, pos)
+        log.info("PubrelFixHead ", data:toHex(), length, pos)
+        return data:sub(length + pos)
+    end,
+    [PubrecFixHead] = function(user, data, length, pos)
+        log.info("PubrecFixHead ", data:toHex(), length, pos)
+        local id = data:sub(3, 4)
+        socket.tx(user.netc, pack_pubrel(id))
+        return data:sub(length + pos)
     end,
 
-    [DisconnectFixHead] = function(user, head, data, length, pos)
+    [DisconnectFixHead] = function(user, data, length, pos)
         if user.keepalive_timer then
             sys.timerStop(user.keepalive_timer)
             user.keepalive_timer = nil
         end
         log.info("连接断开 ", data:toHex(), length, pos)
-        local data = data:sub(length + pos)
-        return data
+        return data:sub(length + pos)
     end
 }
 
@@ -123,16 +151,12 @@ local function mqtt_proc(opts)
     end
     -- fix_head = (fix_head & 0xF0) >> 4
     if MqttPublicAnalysis[fix_head & 0xF0] then
-        return true, MqttPublicAnalysis[fix_head & 0xF0](opts, fix_head, opts.buf, length, pos)
+        return true, MqttPublicAnalysis[fix_head & 0xF0](opts, opts.buf, length, pos)
     else
         log.info("id unregister", string.char(fix_head):toHex())
         return true, opts.buf:sub(length + pos)
     end
 end
-
-
-
-
 
 local function pack_connect(client_id, username, password, keepAlive, clean_session, will, property)
     local str = ""
@@ -174,10 +198,9 @@ local function pack_connect(client_id, username, password, keepAlive, clean_sess
     -- 主题别名最大长度
     if property and type(property) == "table" then
         if property.topic_alias_max_len then
-            properties = properties .. string.char(0x22).. string.char(property.topic_alias_max_len // 256, property.topic_alias_max_len % 256)
+            properties = properties .. string.char(0x22) .. string.char(property.topic_alias_max_len // 256, property.topic_alias_max_len % 256)
         end
     end
-    
 
     str = str .. encode_len(#properties) .. properties
 
@@ -194,7 +217,7 @@ local function pack_connect(client_id, username, password, keepAlive, clean_sess
 
         if will.property and type(will.property) == "table" then
             if will.property.delay_interval then
-                local delay = string.char(0x18).. string.pack(">L", will.property.delay_interval)
+                local delay = string.char(0x18) .. string.pack(">L", will.property.delay_interval)
                 properties = properties .. delay
             end
         end
@@ -207,9 +230,6 @@ local function pack_connect(client_id, username, password, keepAlive, clean_sess
     if username and #username > 0 then
         str = str .. string.char(0x00, #username) .. username
     end
-
-
-
 
     -- 长度
     str = string.char(ConnectFixHead) .. encode_len(#str) .. str
@@ -226,26 +246,32 @@ local function pack_subscribe(topic, qos)
     -- str = str .. string.char(0x00, 0x00)
 
     -- 用户属性
-    local property = string.char(0x00, 0x0A, 0x00)
+    local property = ""
+    property = string.char(0x00, 0x00, 0x00)
+    -- local property = string.char(0x00, 0x0A, 0x00)
 
     topic = string.char(0x00, #topic) .. topic
 
-    local option = string.char(0x04)
+    local option = string.char(qos)
 
-    str = str .. encode_len(#property + #topic + #option) .. property .. topic .. option
+    str = str .. encode_len(#property + #topic + #option) .. property .. topic .. qos
     return str
 end
 
-local function pack_publish(topic, payload, qos, retain, property)
+local function pack_publish(topic, payload, qos, retain, packet_id, property)
     local str = ""
     local topic_len = 0
-    local dup = qos == 0 and 0 or 8
+    local identifier = ""
+    local dup = 0
     if qos == 0 then
         qos = 0
     elseif qos == 1 then
         qos = 2
     elseif qos == 2 then
         qos = 4
+    end
+    if qos > 0 then
+        identifier = string.char(packet_id // 256, packet_id % 256)
     end
     --- publish 报头
     str = str .. string.char(PublishFixHead + (dup + qos + retain))
@@ -273,11 +299,10 @@ local function pack_publish(topic, payload, qos, retain, property)
         properties = properties .. alias
     end
     properties = encode_len(#properties) .. properties
-    str = str .. encode_len(topic_len + #properties + #payload) .. topic .. properties .. payload
+    str = str .. encode_len(topic_len + #identifier + #properties + #payload) .. topic .. identifier .. properties .. payload
     log.info("tx data", str:toHex())
     return str
 end
-
 
 -- socket 回调函数
 local function mqtt_socket_cb(opts, event)
@@ -314,8 +339,6 @@ local function mqtt_socket_cb(opts, event)
     end
 end
 
-
-
 function mqtt5.create(client_id, username, password, keepalive, clean_session, will, property)
     local opts = {}
     local netc = socket.create(nil, function(sc, event)
@@ -338,15 +361,18 @@ function mqtt5.create(client_id, username, password, keepalive, clean_session, w
     opts.clean_session = clean_session
     opts.will = will
     opts.property = property
+    opts.packet_id = 0
+    opts.next_id = function()
+        opts.packet_id = opts.packet_id == 65535 and 1 or (opts.packet_id + 1)
+        return opts.packet_id
+    end
     setmetatable(opts, mqtt5)
     return opts
 end
 
 function mqtt5:on(cb)
-    self.cb = cb
+    self.user_cb = cb
 end
-
-
 
 function mqtt5:connect(host, port)
     socket.config(self.netc, nil, nil)
@@ -358,9 +384,8 @@ function mqtt5:subscribe(topic, qos)
     socket.tx(self.netc, str)
 end
 
-
 function mqtt5:publish(topic, payload, qos, retain, property)
-    local str = pack_publish(topic, payload, qos, retain, property)
+    local str = pack_publish(topic, payload, qos, retain, self.next_id(), property)
     socket.tx(self.netc, str)
 end
 
