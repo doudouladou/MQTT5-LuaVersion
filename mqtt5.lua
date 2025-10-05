@@ -62,26 +62,23 @@ local MqttPublicAnalysis = {
             user.keepalive_timer = sys.timerLoopStart(socket.tx, user.keepalive * 1000, user.netc, ping_req())
             user.user_cb(user, "connack")
         end
-        return data:sub(length + pos)
+        return data:sub(length + 3)
     end,
     [PublishFixHead] = function(user, data, length, pos)
-        -- log.info("mqtt publish", len, #data)
-        log.info("mqtt publish", length, pos)
-        local qos = data:byte(1, 1) & 0x06
-        log.info("publish qos", qos)
-
+        log.info("log.info test", length, pos)
+        local pub_data = data:sub(1, length)
+        local qos = pub_data:byte(1, 1) & 0x06
         -- 主题
-        local topicLen = string.sub(data, pos, pos + 1)
-        log.info("topic len", topicLen:toHex(), tonumber(topicLen:toHex(), 16))
+        local topicLen = string.sub(pub_data, pos, pos + 1)
         topicLen = tonumber(topicLen:toHex(), 16)
+        log.info("topic len", topicLen)
         pos = pos + 2
-        local topic = string.sub(data, pos, pos + topicLen)
-        log.info("topic", topic)
+        local topic = string.sub(pub_data, pos, pos + topicLen)
         pos = pos + topicLen
 
         -- 如果qos大于0, 则有2bytes标识符
         if qos > 0 then
-            local identifier = string.sub(data, pos, pos + 1)
+            local identifier = string.sub(pub_data, pos, pos + 1)
             pos = pos + 2
             if qos == 2 then
                 socket.tx(user.netc, pack_puback(identifier))
@@ -90,33 +87,33 @@ local MqttPublicAnalysis = {
             end
         end
         -- 属性，如果有的话
-        local pubPropertyLen = string.byte(data, pos, pos)
-        pos = pos + 1 + pubPropertyLen
-
+        local property_len = string.byte(pub_data, pos, pos)
+        log.info("proertylelasdf", property_len)
+        pos = pos + 1 + property_len
         -- 负载
-        local payload = string.sub(data, pos)
+        local payload = string.sub(pub_data, pos)
         user.user_cb(user, "recv", topic, payload)
-        return data:sub(length + pos)
+        return data:sub(length + 3)
     end,
     [SubackFixHead] = function(user, data, length, pos)
         log.info("sub ", data:toHex(), length, pos)
         local len = string.sub(data, pos, pos + 1)
-        return data:sub(length + pos)
+        return data:sub(length + 3)
     end,
 
     [PingRespFixHead] = function(user, data, length, pos)
         log.info("PingRespFixHead ", data:toHex(), length, pos)
-        return data:sub(length + pos)
+        return data:sub(length + 3)
     end,
     [PubrelFixHead] = function(user, data, length, pos)
         log.info("PubrelFixHead ", data:toHex(), length, pos)
-        return data:sub(length + pos)
+        return data:sub(length + 3)
     end,
     [PubrecFixHead] = function(user, data, length, pos)
         log.info("PubrecFixHead ", data:toHex(), length, pos)
         local id = data:sub(3, 4)
         socket.tx(user.netc, pack_pubrel(id))
-        return data:sub(length + pos)
+        return data:sub(length + 3)
     end,
 
     [DisconnectFixHead] = function(user, data, length, pos)
@@ -125,7 +122,7 @@ local MqttPublicAnalysis = {
             user.keepalive_timer = nil
         end
         log.info("连接断开 ", data:toHex(), length, pos)
-        return data:sub(length + pos)
+        return data:sub(length + 3)
     end
 }
 
