@@ -190,7 +190,7 @@ function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_sess
         connect_flag = connect_flag + will.retain * 32 + will.qos * 8 + 4
     end
 
-    str = str .. string.pack(">bH", connect_flag, keepAlive)
+    str = str .. string.pack(">BH", connect_flag, keepAlive)
 
     --- properties
     local properties = ""
@@ -205,7 +205,7 @@ function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_sess
 
     --- payload
     if client_id and #client_id > 0 then
-        str = str .. string.char(0x00, #client_id) .. client_id
+        str = str .. string.pack(">H", #client_id) .. client_id
     end
 
     -- will properties
@@ -228,6 +228,11 @@ function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_sess
     -- username
     if username and #username > 0 then
         str = str .. string.pack(">H", #username) .. username
+    end
+
+    -- password
+    if password and #password > 0 then
+        str = str .. string.pack(">H", #password) .. password
     end
 
     -- 长度

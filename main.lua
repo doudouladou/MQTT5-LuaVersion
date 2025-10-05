@@ -3,8 +3,8 @@ local mqtt_user = require "mqtt_user"
 local host = "imadaydreamer.cn"
 local port = 1883
 local client_id = "12345678"
-local username = ""
-local password = ""
+local username = "username"
+local password = "hahahaha"
 local keepalive = 10
 local clean_session = 1
 
