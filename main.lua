@@ -5,7 +5,7 @@ local port = 1883
 local client_id = "12345678"
 local username = "username"
 local password = "hahahaha"
-local keepalive = 10
+local keepalive = 240
 local clean_session = 1
 
 local publish_topic_qos0 = "publish_topic_qos0"
@@ -17,23 +17,31 @@ local subscribe_topic_qos1 = "subscribe_topic_qos1"
 local subscribe_topic_qos2 = "subscribe_topic_qos2"
 
 local pubproperty0 = {
-    alias = 2000
+    topic_alias = 2000
 }
 local pubproperty1 = {
-    alias = 2001
+    topic_alias = 2001
 }
 local pubproperty2 = {
-    alias = 2002
+    topic_alias = 2002
 }
 
 local will_topic = "will"
 
 local object
 
-local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas)
-    log.info("mqtt_client_event_cbfunc", mqtt_client, event, data, payload)
+local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas, property)
+    log.info("mqtt_cbfunc", "event")
     if event == "connack" then
         sys.publish("connack")
+    elseif event == "recv" then
+        local topic = data
+        -- local topic_alias = property.topic_alias
+        log.info("pub topic", topic)
+        log.info("pub payload", payload)
+        for k, v in pairs(property) do
+            log.info("k, v", k, v)
+        end
     end
 end
 

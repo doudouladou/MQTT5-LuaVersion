@@ -28,7 +28,7 @@ local function event_cb(event, user_param, param)
         elseif param.qos == 2 then
             socket.tx(netc, mqtt5.pack_pubrec(param.identifier))
         end
-        user_cb(object, "recv", param.topic, param.payload)
+        user_cb(object, "recv", param.topic, param.payload, nil, param.property)
     elseif event == mqtt5.event_pubrec then
         socket.tx(netc, mqtt5.pack_pubrel(param.identifier))
     elseif event == mqtt5.event_disconnect then
@@ -50,7 +50,7 @@ local function mqtt_socket_cb(opts, event)
         socket.tx(opts.netc, str)
     elseif event == socket.TX_OK then
         -- 数据传输完成
-        log.info("TCP tx done")
+        -- log.info("TCP tx done")
     elseif event == socket.EVENT then
         local result = true
         while true do

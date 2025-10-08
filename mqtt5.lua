@@ -16,10 +16,65 @@ local PingRespFixHead = 0xD0
 local DisconnectFixHead = 0xE0
 local AuthFixHead = 0xF0
 
+-- Properties
+local Format = 0x01
+local MessageTimeout = 0x02
+local ContentType = 0x03
+local ResponseTopic = 0x08
+local RelatedData = 0x09
+local DefineIdentifiers = 0x0B
+local SessionExpireInterval = 0x11
+local UserIdentifiers = 0x12
+local ServerKeepAlive = 0x13
+local AuthMethod = 0x15
+local AuthData = 0x16
+local RequestIssueMseeage = 0x17
+local WillDelayInterval = 0x18
+local RequestResponseMessage = 0x19
+local RequestMessage = 0x1A
+local ServerReference = 0x1C
+local ReasonString = 0x1F
+local RecvMaxLen = 0x21
+local TopicAliasMaxLen = 0x22
+local TopicAlias = 0x23
+local MaxQos = 0x24
+local RetainPropertyAvailability = 0x25
+local UserProperty = 0x26
+local PayloadMaxLen = 0x27
+local WildcardSubsAvailability = 0x28
+local SubIdentifiersAvailability = 0x29
+local ShareSubAvailability = 0x2A
+
 mqtt5.event_connack = 1
 mqtt5.event_publish = 2
 mqtt5.event_pubrec = 3
 mqtt5.event_disconnect = 4
+
+local function decode_byte(buf)
+    return buf:sub(2, 2), buf:sub(3)
+end
+
+local function decode_twobyte(buf)
+    local data, param1 = string.unpack(">H", buf)
+    log.info("test", data, param1)
+    return data
+end
+
+local function decode_fourbyte()
+
+end
+
+local function decode_bin()
+
+end
+
+local function decode_utf8()
+
+end
+
+local function decode_variable_len()
+
+end
 
 local function encode_len(len)
     local s = ""
@@ -35,24 +90,106 @@ local function encode_len(len)
     return s
 end
 
-function mqtt5.ping_req()
-    local str = string.char(PingReqFixHead, 0x00)
-    return str
+local function decode_len(pos, buf)
+    local multiplier = 1
+    local length = 0
+    repeat
+        if pos > #buf then
+            return false
+        end
+        local digit = string.byte(buf, pos)
+        length = length + ((digit % 128) * multiplier)
+        multiplier = multiplier * 128
+        pos = pos + 1
+    until digit < 128
+    return true, length, pos
 end
 
-function mqtt5.pack_puback(id)
-    local str = string.char(PubackFixHead, 0x04) .. id .. string.char(0x00, 0x00)
-    return str
-end
-function mqtt5.pack_pubrec(id)
-    local str = string.char(PubrecFixHead, 0x04) .. id .. string.char(0x00, 0x00)
-    return str
-end
-
-function mqtt5.pack_pubrel(id)
-    local str = string.char(PubrelFixHead, 0x04) .. id .. string.char(0x00, 0x00)
-    return str
-end
+local MqttPropertyAnalysis = {
+    [Format] = function(buf, result)
+        return
+    end,
+    [MessageTimeout] = function(buf, result)
+        return
+    end,
+    [ContentType] = function(buf, result)
+        return
+    end,
+    [ResponseTopic] = function(buf, result)
+        return
+    end,
+    [RelatedData] = function(buf, result)
+        return
+    end,
+    [DefineIdentifiers] = function(buf, result)
+        return
+    end,
+    [SessionExpireInterval] = function(buf, result)
+        return
+    end,
+    [UserIdentifiers] = function(buf, result)
+        return
+    end,
+    [ServerKeepAlive] = function(buf, result)
+        return
+    end,
+    [AuthMethod] = function(buf, result)
+        return
+    end,
+    [AuthData] = function(buf, result)
+        return
+    end,
+    [RequestIssueMseeage] = function(buf, result)
+        return
+    end,
+    [WillDelayInterval] = function(buf, result)
+        return
+    end,
+    [RequestResponseMessage] = function(buf, result)
+        return
+    end,
+    [RequestMessage] = function(buf, result)
+        return
+    end,
+    [ServerReference] = function(buf, result)
+        return
+    end,
+    [ReasonString] = function(buf, result)
+        return
+    end,
+    [RecvMaxLen] = function(buf, result)
+        return
+    end,
+    [TopicAliasMaxLen] = function(buf, result)
+        return
+    end,
+    [TopicAlias] = function(buf, result)
+        local data = decode_twobyte(buf:sub(2, 3))
+        result.topic_alias = data
+        return buf:sub(4)
+    end,
+    [MaxQos] = function(buf, result)
+        return
+    end,
+    [RetainPropertyAvailability] = function(buf, result)
+        return
+    end,
+    [UserProperty] = function(buf, result)
+        return
+    end,
+    [PayloadMaxLen] = function(buf, result)
+        return
+    end,
+    [WildcardSubsAvailability] = function(buf, result)
+        return
+    end,
+    [SubIdentifiersAvailability] = function(buf, result)
+        return
+    end,
+    [ShareSubAvailability] = function(buf, result)
+        return
+    end
+}
 
 local MqttPublicAnalysis = {
     [ConnackFixHead] = function(event_cb, data, length, pos, user_param)
@@ -83,8 +220,19 @@ local MqttPublicAnalysis = {
             pos = pos + 2
         end
         -- 属性，如果有的话
+        local property
         local property_len = string.byte(data, pos, pos)
-        log.info("proerty len", property_len)
+        if property_len > 0 then
+            local buf = string.sub(data, pos + 1, pos + property_len)
+            log.info("sub  pro", buf:toHex())
+            property = {}
+            while #buf > 0 do
+                local flag = buf:byte(1, 1)
+                if MqttPropertyAnalysis[flag] then
+                    buf = MqttPropertyAnalysis[flag](buf, property)
+                end
+            end
+        end
         pos = pos + 1 + property_len
         -- 负载
         local payload = string.sub(data, pos)
@@ -92,7 +240,8 @@ local MqttPublicAnalysis = {
             topic = topic,
             payload = payload,
             qos = qos,
-            identifier = identifier
+            identifier = identifier,
+            property = property
         }
         event_cb(mqtt5.event_publish, user_param, param)
         return return_data
@@ -132,21 +281,34 @@ local MqttPublicAnalysis = {
     end
 }
 
+function mqtt5.ping_req()
+    local str = string.char(PingReqFixHead, 0x00)
+    return str
+end
+
+function mqtt5.pack_puback(id)
+    local str = string.char(PubackFixHead, 0x04) .. id .. string.char(0x00, 0x00)
+    return str
+end
+function mqtt5.pack_pubrec(id)
+    local str = string.char(PubrecFixHead, 0x04) .. id .. string.char(0x00, 0x00)
+    return str
+end
+
+function mqtt5.pack_pubrel(id)
+    local str = string.char(PubrelFixHead, 0x04) .. id .. string.char(0x00, 0x00)
+    return str
+end
+
 function mqtt5.mqtt_proc(event_cb, buf, user_param)
     log.info("mqtt recv", buf:sub(1, 50):toHex())
     local fix_head = buf:byte(1)
-    local length = 0
-    local multiplier = 1
-    local pos = 2
-    repeat
-        if pos > #buf then
-            return buf
-        end
-        local digit = string.byte(buf, pos)
-        length = length + ((digit % 128) * multiplier)
-        multiplier = multiplier * 128
-        pos = pos + 1
-    until digit < 128
+    local result, length, pos = false, 0, 2
+    result, length, pos = decode_len(pos, buf)
+
+    if not result then
+        return false, buf
+    end
 
     if #buf < length + pos - 1 then
         log.info("data length not enough", #buf, length + 2)
@@ -197,7 +359,7 @@ function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_sess
     -- 主题别名最大长度
     if property and type(property) == "table" then
         if property.topic_alias_max_len then
-            properties = properties .. string.pack(">BH", 0x22, property.topic_alias_max_len)
+            properties = properties .. string.pack(">BH", TopicAliasMaxLen, property.topic_alias_max_len)
         end
     end
 
@@ -212,7 +374,7 @@ function mqtt5.pack_connect(client_id, username, password, keepAlive, clean_sess
     local will_data = ""
     if will and type(will) == "table" then
         properties = ""
-        properties = string.char(0x01, 0x01)
+        properties = string.char(Format, 0x01)
 
         if will.property and type(will.property) == "table" then
             if will.property.delay_interval then
@@ -274,7 +436,7 @@ function mqtt5.pack_publish(topic, payload, qos, retain, packet_id, property)
     end
     --- publish 报头
     str = str .. string.char(PublishFixHead + (dup + qos + retain))
-    log.info("packet head", str:toHex())
+    -- log.info("packet head", str:toHex())
     -- TOPIC NAME
     if topic and #topic > 0 then
         topic = string.pack(">H", #topic) .. topic
@@ -287,18 +449,18 @@ function mqtt5.pack_publish(topic, payload, qos, retain, packet_id, property)
     --- publish 属性
     local properties = ""
     -- 载荷格式指示 UTF8
-    local protocol = string.char(0x01, 0x01)
+    local protocol = string.char(Format, 0x01)
     -- properties = string.char(#protocol) .. protocol
     properties = properties .. protocol
     -- 消息过期间隔 TODO
 
     -- 主题别名
-    if property.alias then
-        local alias = string.pack(">BH", 0x23, property.alias)
-        properties = properties .. alias
+    if property.topic_alias then
+        properties = properties .. string.pack(">BH", TopicAlias, property.topic_alias)
     end
     properties = encode_len(#properties) .. properties
-    str = str .. encode_len(topic_len + #identifier + #properties + #payload) .. topic .. identifier .. properties .. payload
+    str = str .. encode_len(topic_len + #identifier + #properties + #payload) .. topic .. identifier .. properties ..
+              payload
     return str
 end
 
