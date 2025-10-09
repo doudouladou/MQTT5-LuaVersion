@@ -27,8 +27,18 @@ local pubproperty2 = {
 }
 
 local will_topic = "will"
+local will_payload = "this client is dead"
+local will_qos = 0
+local will_retain = 0
+local will_property = {
+     delay_interval = 200
+}
 
-local object
+local connect_property = {
+    topic_alias_max_len = 60000
+}
+
+local mqttc
 
 local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas, property)
     log.info("mqtt_cbfunc", "event")
@@ -36,60 +46,50 @@ local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas
         sys.publish("connack")
     elseif event == "recv" then
         local topic = data
-        -- local topic_alias = property.topic_alias
         log.info("pub topic", topic)
         log.info("pub payload", payload)
-        for k, v in pairs(property) do
-            log.info("k, v", k, v)
+        if property and type(property) == "table" then
+            for k, v in pairs(property) do
+                log.info("k, v", k, v)
+            end
         end
     end
 end
 
-local will = {
-    payload = "this client is dead",
-    topic = will_topic,
-    retain = 1,
-    qos = 0,
-    property = {
-        delay_interval = 200
-    }
-}
 
-local property = {
-    topic_alias_max_len = 60000
-}
 
 -- local will = nil
 sys.taskInit(function()
     sys.waitUntil("IP_READY")
     -- 创建一个mqtt5 client
-    object = mqtt_user.create(client_id, username, password, keepalive, clean_session, will, property)
+    mqttc = mqtt_user.create(nil, host, port)
+    mqttc:auth(client_id, username, password)
 
     -- 注册用户回调
-    object:on(mqtt_client_event_cbfunc)
+    mqttc:on(mqtt_client_event_cbfunc)
+    mqttc:will(will_topic, will_payload, will_qos, will_retain, will_property)
 
     -- 连接服务器
-    object:connect(host, 1883)
+    mqttc:connect(connect_property)
 
     -- 等待连接成功
     sys.waitUntil("connack")
 
     -- 订阅主题
-    -- object:subscribe("SubTest", 2)
-    object:subscribe(subscribe_topic_qos0, 0)
-    object:subscribe(subscribe_topic_qos1, 1)
-    object:subscribe(subscribe_topic_qos2, 2)
+    mqttc:subscribe(subscribe_topic_qos0, 0)
+    mqttc:subscribe(subscribe_topic_qos1, 1)
+    mqttc:subscribe(subscribe_topic_qos2, 2)
 
     -- 往主题发布数据
-    object:publish(publish_topic_qos0, "" .. os.time(), 0, 1, pubproperty0)
-    -- object:publish(publish_topic_qos1, "" .. os.time(), 1, 1, pubproperty1)
-    -- object:publish(publish_topic_qos2, "" .. os.time(), 2, 1, pubproperty2)
+    mqttc:publish(publish_topic_qos0, "" .. os.time(), 0, 1, pubproperty0)
+    -- mqttc:publish(publish_topic_qos1, "" .. os.time(), 1, 1, pubproperty1)
+    -- mqttc:publish(publish_topic_qos2, "" .. os.time(), 2, 1, pubproperty2)
     sys.wait(1000)
     while 1 do
         -- 往主题发布数据
-        object:publish("", "" .. os.time(), 0, 1, pubproperty0)
-        -- object:publish("", "" .. os.time(), 1, 1, pubproperty1)
-        -- object:publish("", "" .. os.time(), 2, 1, pubproperty2)
+        mqttc:publish("", "" .. os.time(), 0, 1, pubproperty0)
+        -- mqttc:publish("", "" .. os.time(), 1, 1, pubproperty1)
+        -- mqttc:publish("", "" .. os.time(), 2, 1, pubproperty2)
         sys.wait(1000)
     end
 end)

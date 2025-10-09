@@ -14,7 +14,7 @@ local function event_cb(event, user_param, param)
     if event == mqtt5.event_connack then
         local session = param.session
         local reason_code = param.reason_code
-        if session == 0 and reason_code == 0 then
+        if (session == 0 or session == 1) and reason_code == 0 then
             user_cb(object, "connack")
             if not object.keepalive_timer then
                 object.keepalive_timer = sys.timerLoopStart(keep_alive, object.keepalive * 1000, netc)
@@ -76,9 +76,9 @@ local function mqtt_socket_cb(opts, event)
     end
 end
 
-function mqtt_user.create(client_id, username, password, keepalive, clean_session, will, property)
+function mqtt_user.create(adapter, host, port, ssl, ext_param)
     local opts = {}
-    local netc = socket.create(nil, function(sc, event)
+    local netc = socket.create(adapter, function(sc, event)
         if opts.netc then
             return mqtt_socket_cb(opts, event)
         end
@@ -87,17 +87,17 @@ function mqtt_user.create(client_id, username, password, keepalive, clean_sessio
         log.error("创建socket失败了!!")
         return false
     end
-
+    socket.config(netc, nil, nil)
     opts.netc = netc
-    opts.rx_buff = zbuff.create(1024)
+    if ext_param and type(ext_param) == "table" and ext_param.rxSize then
+        opts.rx_buff = zbuff.create(ext_param.rxSize)
+    else
+        opts.rx_buff = zbuff.create(32 * 1024)
+    end
     opts.buf = ""
-    opts.client_id = client_id
-    opts.username = username or ""
-    opts.password = password or ""
-    opts.keepalive = keepalive or 240
-    opts.clean_session = clean_session
-    opts.will = will
-    opts.property = property
+    opts.host = host
+    opts.port = port
+    opts.keepalive = 240
     opts.packet_id = 0
     opts.event_cb = event_cb
     opts.next_id = function()
@@ -108,13 +108,35 @@ function mqtt_user.create(client_id, username, password, keepalive, clean_sessio
     return opts
 end
 
+function mqtt_user:will(topic, payload, qos, retain, property)
+    self.will = {
+        retain = retain or 0,
+        qos = qos or 0,
+        topic = topic,
+        payload = payload,
+        property = property
+    }
+end
+
+function mqtt_user:auth(client_id, username, password, clean_session)
+    self.client_id = client_id
+    self.username = username or ""
+    self.password = password or ""
+    self.clean_session = clean_session and 1 or 0
+    return true
+end
+
+function mqtt_user:keepalive(keepalive)
+    self.keepalive = keepalive or 240
+end
+
 function mqtt_user:on(cb)
     self.user_cb = cb
 end
 
-function mqtt_user:connect(host, port)
-    socket.config(self.netc, nil, nil)
-    socket.connect(self.netc, host, port)
+function mqtt_user:connect(property)
+    self.property = property
+    socket.connect(self.netc, self.host, self.port)
 end
 
 function mqtt_user:subscribe(topic, qos)
@@ -123,7 +145,7 @@ function mqtt_user:subscribe(topic, qos)
 end
 
 function mqtt_user:publish(topic, payload, qos, retain, property)
-    local str = mqtt5.pack_publish(topic, payload, qos, retain, self.next_id(), property)
+    local str = mqtt5.pack_publish(topic, payload, qos or 0, retain or 0, self.next_id(), property)
     socket.tx(self.netc, str)
 end
 
