@@ -15,7 +15,7 @@ local function event_cb(event, user_param, param)
         local session = param.session
         local reason_code = param.reason_code
         if (session == 0 or session == 1) and reason_code == 0 then
-            user_cb(object, "connack")
+            user_cb(object, "connack", nil, nil, nil, param.property)
             if not object.keepalive_timer then
                 object.keepalive_timer = sys.timerLoopStart(keep_alive, object.keepalive * 1000, netc)
             end

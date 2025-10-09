@@ -31,7 +31,7 @@ local will_payload = "this client is dead"
 local will_qos = 0
 local will_retain = 0
 local will_property = {
-     delay_interval = 200
+    delay_interval = 200
 }
 
 local connect_property = {
@@ -48,15 +48,13 @@ local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas
         local topic = data
         log.info("pub topic", topic)
         log.info("pub payload", payload)
-        if property and type(property) == "table" then
-            for k, v in pairs(property) do
-                log.info("k, v", k, v)
-            end
+    end
+    if property and type(property) == "table" then
+        for k, v in pairs(property) do
+            log.info("k, v", k, v)
         end
     end
 end
-
-
 
 -- local will = nil
 sys.taskInit(function()
