@@ -56,7 +56,6 @@ end
 
 local function decode_twobyte(buf)
     local data, param1 = string.unpack(">H", buf)
-    log.info("test", data, param1)
     return data
 end
 
@@ -108,145 +107,194 @@ local function decode_len(pos, buf)
 end
 
 local MqttPropertyAnalysis = {
+    -- 0x01
     [Format] = function(buf, result)
         local data = buf:byte(2, 2)
         result.format = data
         return buf:sub(3)
     end,
+    -- 0x02
     [MessageTimeout] = function(buf, result)
         local data = string.unpack(">L", buf:sub(2, 5))
         result.message_timeout = data
         return buf:sub(6)
     end,
+    -- 0x03
     [ContentType] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.content_type = data
         return buf:sub(len + 4)
     end,
+    -- 0x08
     [ResponseTopic] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.response_topic = data
         return buf:sub(len + 4)
     end,
+    -- 0x09
     [CorrelationData] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.correlation_data = data
         return buf:sub(len + 4)
     end,
+    -- 0x0B
     [DefineIdentifiers] = function(buf, result)
         local ret, length, pos = false, 0, 2
         ret, length, pos = decode_len(pos, buf)
-        log.info("testaaaa", ret, length, pos)
         result.define_identifiers = length
-        return buf:sub(4)
+        return buf:sub(pos + 1)
     end,
+    -- 0x11
     [SessionExpireInterval] = function(buf, result)
         local time = string.unpack(">L", buf:sub(2, 5))
         result.expire_interval = time
         return buf:sub(6)
     end,
+    -- 0x12
     [UserIdentifiers] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.user_identifiers = data
         return buf:sub(len + 4)
     end,
+    -- 0x13
     [ServerKeepAlive] = function(buf, result)
         local data = decode_twobyte(buf:sub(2, 3))
         result.server_keep_alive = data
         return buf:sub(4)
     end,
+    -- 0x15
     [AuthMethod] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.auth_method = data
         return buf:sub(len + 4)
     end,
+    -- 0x16
     [AuthData] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.auth_data = data
         return buf:sub(len + 4)
     end,
+    -- 0x17
     [RequestIssueMseeage] = function(buf, result)
         local data = buf:byte(2, 2)
         result.req_issue_message = data
         return buf:sub(3)
     end,
+    -- 0x18
     [WillDelayInterval] = function(buf, result)
         local time = string.unpack(">L", buf:sub(2, 5))
         result.will_delay_interval = time
         return buf:sub(6)
     end,
+    -- 0x19
     [RequestResponseMessage] = function(buf, result)
         local data = buf:byte(2, 2)
         result.req_response_message = data
         return buf:sub(3)
     end,
+    -- 0x1A
     [RequestMessage] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.request_message = data
         return buf:sub(len + 4)
     end,
+    -- 0x1C
     [ServerReference] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.server_reference = data
         return buf:sub(len + 4)
     end,
+    -- 0x1F
     [ReasonString] = function(buf, result)
         local len = string.unpack(">H", buf:sub(2, 3))
         local data = buf:sub(4, len + 3)
         result.reason_string = data
         return buf:sub(len + 4)
     end,
+    -- 0x21
     [RecvMaxLen] = function(buf, result)
         local data = decode_twobyte(buf:sub(2, 3))
         result.recv_max_len = data
         return buf:sub(4)
     end,
+    -- 0x22
     [TopicAliasMaxLen] = function(buf, result)
         local data = decode_twobyte(buf:sub(2, 3))
         result.topic_alias_max_len = data
         return buf:sub(4)
     end,
+    -- 0x23
     [TopicAlias] = function(buf, result)
         local data = decode_twobyte(buf:sub(2, 3))
         result.topic_alias = data
         return buf:sub(4)
     end,
+    -- 0x24
     [MaxQos] = function(buf, result)
         local data = buf:byte(2, 2)
         result.max_qos = data
         return buf:sub(3)
     end,
+    -- 0x25
     [RetainPropertyAvailability] = function(buf, result)
         local data = buf:byte(2, 2)
         result.retain_property = data
         return buf:sub(3)
     end,
+    -- 0x26
     [UserProperty] = function(buf, result)
-        return
+        local find_key = true
+        local key, valut
+        local len, data
+        result.user_property = {}
+        buf = buf:sub(2)
+        while true do
+            if find_key then
+                find_key = false
+                len = string.unpack(">H", buf:sub(1, 2))
+                if len == 0 or len > (#buf - 2) then
+                    break
+                end
+                data = buf:sub(3, len + 2)
+                buf = buf:sub(len + 3)
+                key = data
+            else
+                find_key = true
+                len = string.unpack(">H", buf:sub(1, 2))
+                data = buf:sub(3, len + 2)
+                result.user_property[key] = data
+                buf = buf:sub(len + 3)
+            end
+        end
+        return buf
     end,
+    -- 0x27
     [PayloadMaxLen] = function(buf, result)
         local data = string.unpack(">L", buf:sub(2, 5))
         result.payload_max_len = data
         return buf:sub(6)
     end,
+    -- 0x28
     [WildcardSubsAvailability] = function(buf, result)
         local data = buf:byte(2, 2)
         result.sub_wildcard = data
         return buf:sub(3)
     end,
+    -- 0x29
     [SubIdentifiersAvailability] = function(buf, result)
         local data = buf:byte(2, 2)
         result.sub_identifiers = data
         return buf:sub(3)
     end,
+    -- 0x2A
     [ShareSubAvailability] = function(buf, result)
         local data = buf:byte(2, 2)
         result.sub_share = data
@@ -257,12 +305,12 @@ local MqttPropertyAnalysis = {
 local function property_analysis(buf, result)
     while #buf > 0 do
         local flag = buf:byte(1, 1)
-        log.info("flag", flag)
+        -- log.info("flag", flag)
         if MqttPropertyAnalysis[flag] then
             buf = MqttPropertyAnalysis[flag](buf, result)
         else
-           -- 不存在的属性, 直接抛弃这包数据吧
-           break 
+            -- 不存在的属性, 直接抛弃这包数据吧
+            break
         end
     end
 end
@@ -312,7 +360,7 @@ local MqttPublicAnalysis = {
         local property_len = string.byte(data, pos, pos)
         if property_len > 0 then
             local buf = string.sub(data, pos + 1, pos + property_len)
-            log.info("sub  pro", buf:toHex())
+            -- log.info("sub  pro", buf:toHex())
             property = {}
             property_analysis(buf, property)
         end

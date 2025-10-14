@@ -38,7 +38,7 @@ local function event_cb(event, user_param, param)
         end
         user_cb(object, "disconnect")
     end
-    log.info("event cb", event, user_param)
+    -- log.info("event cb", event, user_param)
 end
 
 -- socket 回调函数

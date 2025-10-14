@@ -41,17 +41,23 @@ local connect_property = {
 local mqttc
 
 local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas, property)
-    log.info("mqtt_cbfunc", "event")
+    -- log.info("mqtt_cbfunc", "event")
     if event == "connack" then
         sys.publish("connack")
     elseif event == "recv" then
         local topic = data
-        log.info("pub topic", topic)
-        log.info("pub payload", payload)
+        -- log.info("pub topic", topic)
+        -- log.info("pub payload", payload)
     end
-    if property and type(property) == "table" then
-        for k, v in pairs(property) do
-            log.info("k, v", k, v)
+    if property then
+        for key, value in pairs(property) do
+            log.info("k, v", key, value)
+        end
+        if property.user_property then
+            for key, value in pairs(property.user_property) do
+                log.info("key", key)
+                log.info("value", value)
+            end
         end
     end
 end
