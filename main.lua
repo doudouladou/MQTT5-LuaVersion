@@ -5,7 +5,7 @@ local port = 1883
 local client_id = "12345678"
 local username = "username"
 local password = "hahahaha"
-local keepalive = 240
+local keep_alive = 100
 local clean_session = 1
 
 local publish_topic_qos0 = "publish_topic_qos0"
@@ -41,7 +41,7 @@ local connect_property = {
 local mqttc
 
 local function mqtt_client_event_cbfunc(mqtt_client, event, data, payload, metas, property)
-    -- log.info("mqtt_cbfunc", "event")
+    log.info("cb", event, data, payload, metas, property)
     if event == "connack" then
         sys.publish("connack")
     elseif event == "recv" then
@@ -68,6 +68,7 @@ sys.taskInit(function()
     -- 创建一个mqtt5 client
     mqttc = mqtt_user.create(nil, host, port)
     mqttc:auth(client_id, username, password)
+    mqttc:keepalive(keep_alive)
 
     -- 注册用户回调
     mqttc:on(mqtt_client_event_cbfunc)

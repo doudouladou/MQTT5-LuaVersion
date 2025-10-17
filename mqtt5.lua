@@ -1,5 +1,23 @@
 local mqtt5 = {}
 
+
+mqtt5.event_connack = 1
+mqtt5.event_publish = 2
+mqtt5.event_puback = 3
+mqtt5.event_pubcomp = 4
+mqtt5.event_suback = 5
+mqtt5.event_unsuback = 6
+mqtt5.event_pingresp = 7
+mqtt5.event_disconnect = 8
+
+-- #define MQTT_MSG_RELEASE 		0	/**< mqtt 释放资源前回调消息 */
+-- #define MQTT_MSG_CLOSE 			4	/**< mqtt 关闭回调消息(不会再重连) */
+-- #define MQTT_MSG_CON_ERROR 		5
+-- #define MQTT_MSG_TX_ERROR 		6
+-- #define MQTT_MSG_CONACK_ERROR 	7
+-- #define MQTT_MSG_NET_ERROR 		8
+-- #define MQTT_MSG_CONN_TIMEOUT   9	/**< mqtt 连接超时回调消息 */
+
 local ConnectFixHead = 0x10
 local ConnackFixHead = 0x20
 local PublishFixHead = 0x30
@@ -45,37 +63,12 @@ local WildcardSubsAvailability = 0x28
 local SubIdentifiersAvailability = 0x29
 local ShareSubAvailability = 0x2A
 
-mqtt5.event_connack = 1
-mqtt5.event_publish = 2
-mqtt5.event_pubrec = 3
-mqtt5.event_disconnect = 4
-
-local function decode_byte(buf)
-    return string.byte(buf)
-end
 
 local function decode_twobyte(buf)
     local data, param1 = string.unpack(">H", buf)
     return data
 end
 
-local function decode_fourbyte(buf)
-    local data, param1 = string.unpack(">L", buf)
-    return data
-end
-
-local function decode_bin()
-
-end
-
-local function decode_utf8(buf)
-    local len = string.unpack(">H", buf:sub(2, 3))
-    return len
-end
-
-local function decode_variable_len()
-
-end
 
 local function encode_len(len)
     local s = ""
@@ -252,29 +245,21 @@ local MqttPropertyAnalysis = {
     -- 0x26
     [UserProperty] = function(buf, result)
         local find_key = true
-        local key, valut
-        local len, data
-        result.user_property = {}
+        local len, key, value
+        
+        -- remove flag
         buf = buf:sub(2)
-        while true do
-            if find_key then
-                find_key = false
-                len = string.unpack(">H", buf:sub(1, 2))
-                if len == 0 or len > (#buf - 2) then
-                    break
-                end
-                data = buf:sub(3, len + 2)
-                buf = buf:sub(len + 3)
-                key = data
-            else
-                find_key = true
-                len = string.unpack(">H", buf:sub(1, 2))
-                data = buf:sub(3, len + 2)
-                result.user_property[key] = data
-                buf = buf:sub(len + 3)
-            end
-        end
-        return buf
+
+        -- proc key
+        len = string.unpack(">H", buf:sub(1, 2))
+        key = buf:sub(3, len + 2)
+        buf = buf:sub(len + 3)
+
+        -- proc value
+        len = string.unpack(">H", buf:sub(1, 2))
+        value = buf:sub(3, len + 2)
+        result.user_property[key] = value
+        return buf:sub(len + 3)
     end,
     -- 0x27
     [PayloadMaxLen] = function(buf, result)
@@ -303,6 +288,7 @@ local MqttPropertyAnalysis = {
 }
 
 local function property_analysis(buf, result)
+    result.user_property = {}
     while #buf > 0 do
         local flag = buf:byte(1, 1)
         -- log.info("flag", flag)
@@ -386,17 +372,15 @@ local MqttPublicAnalysis = {
 
     [PingRespFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
-        log.info("PingRespFixHead ", data:toHex(), length, pos)
+        event_cb(mqtt5.event_pingresp, user_param)
         return return_data
     end,
     [PubrelFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
-        log.info("PubrelFixHead ", data:toHex(), length, pos)
         return return_data
     end,
     [PubrecFixHead] = function(event_cb, data, length, pos, user_param)
         local return_data = data:sub(length + pos)
-        log.info("PubrecFixHead ", data:toHex(), length, pos)
         local identifier = data:sub(3, 4)
         local param = {
             identifier = identifier

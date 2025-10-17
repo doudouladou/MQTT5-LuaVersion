@@ -1,6 +1,15 @@
 local mqtt_user = {}
 mqtt_user.__index = mqtt_user
 
+
+local event_release = 1
+local event_close = 2
+local event_conn_error = 3
+local event_tx_error = 4
+local event_conack_error = 5
+local event_net_error = 6
+local event_conn_timeout = 7
+
 local mqtt5 = require "mqtt5"
 
 local function keep_alive(netc)
@@ -17,10 +26,10 @@ local function event_cb(event, user_param, param)
         if (session == 0 or session == 1) and reason_code == 0 then
             user_cb(object, "connack", nil, nil, nil, param.property)
             if not object.keepalive_timer then
-                object.keepalive_timer = sys.timerLoopStart(keep_alive, object.keepalive * 1000, netc)
+                object.keepalive_timer = sys.timerLoopStart(keep_alive, object.keepalive_time * 1000, netc)
             end
         else
-            user_cb(object, "disconnect")
+            user_cb(object, "error", "connack", reason_code)
         end
     elseif event == mqtt5.event_publish then
         if param.qos == 1 then
@@ -28,7 +37,17 @@ local function event_cb(event, user_param, param)
         elseif param.qos == 2 then
             socket.tx(netc, mqtt5.pack_pubrec(param.identifier))
         end
-        user_cb(object, "recv", param.topic, param.payload, nil, param.property)
+        local message_id = 0
+        if param.identifier then
+            message_id =  string.unpack(">H", param.identifier)
+        end
+
+        local metas = {
+            message_id = message_id,
+            qos = param.qos,
+        }
+        -- TODO RETAIN DUP
+        user_cb(object, "recv", param.topic, param.payload, metas, param.property)
     elseif event == mqtt5.event_pubrec then
         socket.tx(netc, mqtt5.pack_pubrel(param.identifier))
     elseif event == mqtt5.event_disconnect then
@@ -37,6 +56,8 @@ local function event_cb(event, user_param, param)
             object.keepalive_timer = nil
         end
         user_cb(object, "disconnect")
+    elseif event == mqtt5.event_pingresp then
+        user_cb(object, "pong")
     end
     -- log.info("event cb", event, user_param)
 end
@@ -46,7 +67,7 @@ local function mqtt_socket_cb(opts, event)
     if event == socket.ON_LINE then
         -- TCP链接已建立, 那就可以上行了
         log.info("TCP connected")
-        local str = mqtt5.pack_connect(opts.client_id, opts.username, opts.password, opts.keepalive, opts.clean_session, opts.will, opts.property)
+        local str = mqtt5.pack_connect(opts.client_id, opts.username, opts.password, opts.keepalive_time, opts.clean_session, opts.will, opts.property)
         socket.tx(opts.netc, str)
     elseif event == socket.TX_OK then
         -- 数据传输完成
@@ -97,7 +118,7 @@ function mqtt_user.create(adapter, host, port, ssl, ext_param)
     opts.buf = ""
     opts.host = host
     opts.port = port
-    opts.keepalive = 240
+    opts.keepalive_time = 240
     opts.packet_id = 0
     opts.event_cb = event_cb
     opts.next_id = function()
@@ -126,8 +147,8 @@ function mqtt_user:auth(client_id, username, password, clean_session)
     return true
 end
 
-function mqtt_user:keepalive(keepalive)
-    self.keepalive = keepalive or 240
+function mqtt_user:keepalive(keepalive_time)
+    self.keepalive_time = keepalive_time or 240
 end
 
 function mqtt_user:on(cb)
